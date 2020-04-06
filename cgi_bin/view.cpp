@@ -61,6 +61,6 @@ int main(void){
     // output to stdout
     printf("<HTML><HEAD><meta http-equiv=\"content-type\" content=\"text/html;charset=utf-8\">\n");
     printf("<TITLE>View File</TITLE>\n");
-    printf("<BODY>File Content: %s</BODY></HTML>\n",&content[0]);
+    printf("<BODY><b>File Content:</b><br> %s</BODY></HTML>\n",&content[0]);
 
 }

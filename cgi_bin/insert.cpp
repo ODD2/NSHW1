@@ -16,6 +16,7 @@
 #include <fstream>
 #include <iostream>
 #include "../Helper.h"
+#include "../Global.h"
 #include <unistd.h>
 #include <sys/select.h>
 using namespace std;
@@ -29,7 +30,7 @@ int main(void){
     //select() requirements.
     fd_set rset;
     //	{secs, usecs}
-    timeval tv = {10,0};
+    timeval tv = {5,0};
 
     //setup
     FD_ZERO(&rset);
@@ -37,9 +38,8 @@ int main(void){
 
     //watch stdin
     int readyN = select(STDIN_FILENO+1,&rset,NULL,NULL,&tv);
-
     //if stdin has action
-    if(readyN >0 && FD_SET(STDIN_FILENO,&rset) == 1){
+    if(readyN > 0 && FD_ISSET(STDIN_FILENO,&rset)){
     	//peek for input size;
      	 if(ioctl(STDIN_FILENO,FIONREAD,&unread)){
      	 	            perror("ioctl");
@@ -59,17 +59,17 @@ int main(void){
         	 //check query
         	 if(inputParams.count("value")){
   	      	    	fstream file("./tmp.txt",ios::in|ios::app);
-  	      	    	file << inputParams["value"] <<endl;
+  	      	    	file << inputParams["value"]<<"<br>" <<endl;
   	      	    	file.close();
-  	      	    	printf("Insert  \"%s\" Success\n",inputParams["value"].c_str());
+  	      	    	printf("<b>Insert  \"%s\" Success<b>",inputParams["value"].c_str());
   	      	    	return 0;
   	      	  }
   	      	  else{
-  	      		  	  printf("No Value Inserted\n");
+  	      		  	  printf("<b>No Value Inserted\n<b>");
   	      		  	  return 0;
   	      	  }
     	 }
     }
-    printf("No Parameter Given\n");
+    printf("<b>No Parameter Given\n<b>");
     return 0;
 }
