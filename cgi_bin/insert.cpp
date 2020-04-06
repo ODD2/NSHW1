@@ -17,45 +17,59 @@
 #include <iostream>
 #include "../Helper.h"
 #include <unistd.h>
+#include <sys/select.h>
 using namespace std;
 /*
 Please make sure you understand host.c
 */
 
 int main(void){
-    int unread;
+    int unread = 0;
     char *buf;
+    //select() requirements.
+    fd_set rset;
+    //	{secs, usecs}
+    timeval tv = {10,0};
 
-    {
-    	// wait for stdin
-    	bool waitSec = false;
-    	while(unread<1){
- 	        if(ioctl(STDIN_FILENO,FIONREAD,&unread)){
- 	            perror("ioctl");
- 	            exit(EXIT_FAILURE);
- 	        }
-    	}
+    //setup
+    FD_ZERO(&rset);
+    FD_SET(STDIN_FILENO,&rset);
+
+    //watch stdin
+    int readyN = select(STDIN_FILENO+1,&rset,NULL,NULL,&tv);
+
+    //if stdin has action
+    if(readyN >0 && FD_SET(STDIN_FILENO,&rset) == 1){
+    	//peek for input size;
+     	 if(ioctl(STDIN_FILENO,FIONREAD,&unread)){
+     	 	            perror("ioctl");
+     	 	            exit(EXIT_FAILURE);
+     	 }
+    	 if(unread > 0){
+        	//allocate buffer
+        	 buf = (char*)malloc(sizeof(char)*(unread+1));
+        	 buf[unread] = '\0';
+
+        	 //read
+        	 read(STDIN_FILENO,buf,unread);
+
+        	 //parse input query.
+        	 map<string,string> inputParams  = ParseQuery(buf);
+
+        	 //check query
+        	 if(inputParams.count("value")){
+  	      	    	fstream file("./tmp.txt",ios::in|ios::app);
+  	      	    	file << inputParams["value"] <<endl;
+  	      	    	file.close();
+  	      	    	printf("Insert  \"%s\" Success\n",inputParams["value"].c_str());
+  	      	    	return 0;
+  	      	  }
+  	      	  else{
+  	      		  	  printf("No Value Inserted\n");
+  	      		  	  return 0;
+  	      	  }
+    	 }
     }
-
-
-
-    buf = (char*)malloc(sizeof(char)*(unread+1));
-    buf[unread] = '\0';
-//    cout << unread <<endl;
-    // read from stdin fd
-    read(STDIN_FILENO,buf,unread);
-//    cout << "asdfasdfasdf"<<endl;
-    map<string,string> inputParams  = ParseQuery(buf);
-    //for(auto i = inputParams.begin();i!=inputParams.end();i++){
-    //	cout << i->first << i->second <<endl;
-    //}
-    if(inputParams.count("value")){
-    	fstream file("./tmp.txt",ios::in|ios::app);
-    	file << inputParams["value"] <<endl;
-    	file.close();
-    	printf("Insert  \"%s\" Success\n",inputParams["value"].c_str());
-    }
-    else{
-    	printf("No Value Inserted\n");
-    }
+    printf("No Parameter Given\n");
+    return 0;
 }
