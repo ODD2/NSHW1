@@ -23,6 +23,8 @@ public:
 
 	string getDirectory();
 
+	string getContent();
+
 	eMethod getMethod();
 private:
 	eMethod reqMethod = eMethod::Unknown;

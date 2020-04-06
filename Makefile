@@ -1,6 +1,6 @@
 CXXFLAGS =	-O2 -g -Wall -fmessage-length=0
 
-OBJS =		NSHW1.o HttpHeaderParser.o
+OBJS =		NSHW1.o HttpHeaderParser.o Helper.o
 
 LIBS = -lpthread
 
@@ -15,7 +15,7 @@ HttpHeaderParser.o : HttpHeaderParser.h HttpHeaderParser.cpp
 $(TARGET):	$(OBJS)
 	$(CXX) -o $(TARGET) $(OBJS) $(LIBS)
 
-all:	$(TARGET) TEST_CGI
+all:	$(TARGET) TEST_CGI 
 
 clean:
 	rm -f $(OBJS) $(TARGET)

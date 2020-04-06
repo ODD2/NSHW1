@@ -67,7 +67,6 @@ string HttpHeaderParser::getPath(){
 	return ret;
 }
 
-
 string HttpHeaderParser::getFile(){
 	return pathHierarchy.back();
 }
@@ -82,6 +81,17 @@ string HttpHeaderParser::getDirectory(){
 
 eMethod HttpHeaderParser::getMethod(){
 	return reqMethod;
+}
+
+string HttpHeaderParser::getContent(){
+	if(contentList.size()==0)return " ";
+	else{
+		string ret = contentList[0];
+		for(int i = 1 , j = contentList.size(); i < j ; ++i){
+			ret += "&" + contentList[i];
+		}
+		return ret;
+	}
 }
 
 void HttpHeaderParser::parseLocation(char * location){

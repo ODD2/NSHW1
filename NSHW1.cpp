@@ -260,8 +260,11 @@ void cgi_handler(int client_socket,HttpHeaderParser& parser){
             close(ChildOutput[1]);
 
             // send the message to the CGI program
-            write(ParentOutput[1], inputData, strlen(inputData));
-
+            string content = parser.getContent();
+            int totalSize = content.size();
+            for(int i = 0; i < totalSize;){
+            	i += write(ParentOutput[1], &content[i], (i+BUF_LEN < totalSize?BUF_LEN:totalSize-i));
+            }
 
             // receive the message from the  CGI program
             string result = "";
