@@ -7,107 +7,179 @@
 
 
 #include "HttpHeaderParser.h"
+#include "Global.h"
 
-HttpHeaderParser::HttpHeaderParser(char* headerBuffer,size_t size){
-	char * char_ptr_method,* char_ptr_location;
+HttpHeaderParser::HttpHeaderParser(int client_socket,char* headerBuffer){
+	string headerRaw(headerBuffer);
+	string firstLine;
+	string optLines;
+	string contents;
+//	seperate the first line
+	{
+		size_t pos;
+		if((pos = headerRaw.find("\r\n"))==string::npos) throw "Header Format Error";
 
-	char_ptr_method = strtok(headerBuffer," ");
-	char_ptr_location = strtok (NULL," ");
-	if(char_ptr_method==NULL || char_ptr_location ==NULL){
-		//parse abort
-		return;
+		firstLine = headerRaw.substr(0,pos);
+		headerRaw = headerRaw.substr(pos+2);
 	}
-
-	if(strcmp("GET",char_ptr_method)==0){
-		reqMethod = eMethod::Get;
-		char * querystr ;
-		char_ptr_location = strtok(char_ptr_location,"?");
-	    querystr = strtok(NULL,"?");
-		char * query = strtok(querystr,"&");
-		while(query!=NULL){
-	    	contentList.push_back(query);
-	    	query = strtok(NULL,"&");
-		}
-	}
-	else if(strcmp("POST",char_ptr_method)==0){
-		reqMethod = eMethod::Post;
-		int contentLength = 0;
-
-		char * headOpt = strtok(NULL,"\r\n");
-		while(headOpt!=NULL){
-			string headStr(headOpt);
-			if(headStr.substr(0,headStr.find(':')) == "Content-Length"){
-			  contentLength = strtoll(headStr.substr(15).c_str(),NULL,10);
-			  break;
+// seperate the options and contents
+	{
+		size_t pos,prev_pos=0;
+		while(1){
+			pos = headerRaw.find("\r\n",prev_pos);
+			if(pos ==string::npos)
+				throw "Header Format Error";
+			else if(prev_pos == pos){
+				optLines = headerRaw.substr(0,prev_pos);
+				contents = headerRaw.substr(pos+2);
+				break;
 			}
-			headOpt = strtok(NULL,"\r\n");
+			else
+				prev_pos = pos+2;
 		}
+	}
 
-		if(contentLength > 0 && contentLength < size){
-			char * contentStart = &headerBuffer[size - contentLength];
-			char * query = strtok(contentStart,"&");
-			while(query!=NULL){
-			   	contentList.push_back(query);
-			   	query = strtok(NULL,"&");
+	parseFirstLine(firstLine);
+	parseOptions(optLines);
+
+	// fetch the contents
+		{
+			if(optPair.count("Content-Length")){
+				char buffer[BUF_LEN] = {0};
+				int read_count = 0;
+				size_t length =  strtoll(optPair["Content-Length"].c_str(),NULL,10);
+			    fd_set rset;
+			    timeval tv = {KEEP_ALIVE_TIMEOUT,0};
+
+
+				while( contents.size() < length) {
+				    //setup
+				    FD_ZERO(&rset);
+				    //listening event
+				    int readyN = select(client_socket+1,&rset,NULL,NULL,&tv);
+
+				    if(readyN == 0)throw EC_CON_TIMEOUT;
+
+					read_count = recv( client_socket , buffer, BUF_LEN, MSG_DONTWAIT);
+
+					if(read_count == -1) continue;
+					else if(read_count == 0) throw EC_CON_CLOSE;
+
+					contents += buffer;
+				}
+				DEBUG_ONLY(cout << "Content Fetched. Content Tmp == Content-Length ? " << (contents.size()==length) <<endl;);
 			}
 		}
-	}
-	else{
-		throw "Invalid Method";
-	}
-
-	parseLocation(char_ptr_location);
+		mContent = move(contents);
 };
 
+map<string,string>& HttpHeaderParser::getOptions(){
+	return optPair;
+}
+
 string HttpHeaderParser::getPath(){
-	string ret;
-	for(int i = 0 ,j = pathHierarchy.size();i<j;++i){
-			ret += "/" + pathHierarchy[i];
-	}
-	return ret;
+	DEBUG_ONLY(cout << __FUNCTION__ << ":" <<mUrl <<endl;)
+	return mUrl;
 }
 
 string HttpHeaderParser::getFile(){
-	return pathHierarchy.back();
+	DEBUG_ONLY(cout << __FUNCTION__ << ":" <<mUrl.substr(mUrl.rfind("/")+1) <<endl;)
+	return mUrl.substr(mUrl.rfind("/")+1);
 }
 
 string HttpHeaderParser::getDirectory(){
-	string ret;
-	for(int i = 0 ,j = pathHierarchy.size()-1;i<j;++i){
-		ret += "/" + pathHierarchy[i];
-	}
-	return ret;
+	DEBUG_ONLY(cout << __FUNCTION__ << ":" <<mUrl.substr(0,mUrl.rfind("/")) <<endl;)
+	return mUrl.substr(0,mUrl.rfind("/"));
 }
 
 eMethod HttpHeaderParser::getMethod(){
+	DEBUG_ONLY(cout << __FUNCTION__ << ":" << reqMethod <<endl;)
 	return reqMethod;
 }
 
 string HttpHeaderParser::getContent(){
-	if(contentList.size()==0)return " ";
-	else{
-		string ret = contentList[0];
-		for(int i = 1 , j = contentList.size(); i < j ; ++i){
-			ret += "&" + contentList[i];
+	DEBUG_ONLY(cout << __FUNCTION__ << ":" << mContent <<endl;)
+	return mContent;
+}
+
+string HttpHeaderParser::getQuery(){
+	DEBUG_ONLY(cout << __FUNCTION__ << ":" << mQuery <<endl;)
+	return mContent;
+}
+
+string HttpHeaderParser::getParams(){
+	string ret = "";
+	switch(reqMethod){
+	case eMethod::Get:
+		ret = mQuery;
+		break;
+	case eMethod::Post:
+		ret=mContent;
+		break;
+	default:
+		break;
+	}
+	DEBUG_ONLY(cout << __FUNCTION__ << ":" << ret <<endl;)
+	return ret;
+}
+
+void HttpHeaderParser::parseFirstLine(string firstLine){
+	//	Get Method
+	{
+		size_t pos = firstLine.find(" ");
+		if(pos == string::npos)
+			throw "Header Format Error";
+		string method = firstLine.substr(0,pos);
+		if(method == "GET"){
+			reqMethod = eMethod::Get;
 		}
-		return ret;
+		else if(method == "POST"){
+			reqMethod = eMethod::Post;
+		}
+		else
+			throw "Unknown Method";
+
+		firstLine = firstLine.substr(pos+1);
+	}
+	// Get URL
+	{
+		size_t pos = firstLine.find(" ");
+		if(pos == string::npos) throw "Header Format Error";
+		string url = firstLine.substr(0,pos);
+
+		//	Get query string if method is GET
+		if(reqMethod == eMethod::Get ){
+			pos = url.find("?");
+			if(pos != string::npos){
+				mQuery= url.substr(pos+1);
+				url = url.substr(0,pos);
+			}
+		}
+
+		//	Check if Url  has relative path
+		if(url.find("../")!=string::npos){
+			throw "Invalid Url with relative path";
+		}
+
+		//Check if Url request default index.html
+		if(url.back() == '/'){
+			url.append("index.html");
+		}
+
+		mUrl = url;
 	}
 }
 
-void HttpHeaderParser::parseLocation(char * location){
-		if(location[strlen(location)-1]=='/') isDir = true;
-
-		char * pch = strtok(location,"/");
-		while( pch!=NULL )
-		{
-			if(strlen(pch) > 0){
-				if(pch[0]=='.'&&pch[1]=='.')throw "Relative Path Invalid";
-				pathHierarchy.push_back(string(pch));
-			}
-			pch = strtok(NULL,"/");
+void HttpHeaderParser::parseOptions(string optLines){
+		size_t pos = 0,prev_pos=0,comma=0;
+		string option;
+		while((pos = optLines.find("\r\n",prev_pos))!= string::npos){
+			option = optLines.substr(prev_pos,pos-prev_pos);
+			//Unknown Option Format Ignoring.
+			if((comma = option.find(":"))== string::npos) continue;
+			//Seperate key and value
+			optPair[option.substr(0,comma)] = option.substr(comma+1);
+			prev_pos = pos + 2;
 		}
-		if(pathHierarchy.size() == 0 || isDir){
-			pathHierarchy.push_back("index.html");
-		}
-	}
+}
 

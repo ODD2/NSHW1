@@ -20,25 +20,19 @@
 #include <chrono>
 #include <wait.h>
 #include <sys/stat.h>
+#include <sys/select.h>
 #include "HttpHeaderParser.h"
-#define PORT 5000
-#define BUF_LEN 1024
-#define RootPath "./"
+#include "Global.h"
 using namespace std;
 
-#define DEBUG
-#ifdef DEBUG
-#define DEBUG_ONLY(x) x
-#else
-#define DEBUG_ONLY(x)
-#endif
 
 
 
 void http_handler(int);
-void html_handler(int,HttpHeaderParser&);
+void file_handler(int,HttpHeaderParser&);
 void cgi_handler(int,HttpHeaderParser&);
-void html_404_handler(int);
+void html_404_handler(int,const char *);
+void http_sender(int dest_socket, std::map<string,string> header_options );
 
 int forkm(){
     /* 讓父行程不必等待子行程結束 */
@@ -65,17 +59,10 @@ string get_http_time(){
 
 int main(int argc, char const *argv[])
  {
-		const auto p1 = std::chrono::system_clock::now();
-
-	    std::cout << "seconds since epoch: "
-	              << std::chrono::duration_cast<std::chrono::seconds>(
-	                   p1.time_since_epoch()).count() << '\n';
-
-		int server_fd, new_socket,read_count;
+		int server_fd, new_socket;
 	    struct sockaddr_in addr;
 	    int opt = 1;
 	    int addr_len =sizeof(addr);
-	    char buffer[BUF_LEN] = {0};
 	    // Creating socket file descriptor
 	    if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) == 0)
 	    {
@@ -117,7 +104,7 @@ int main(int argc, char const *argv[])
 		//			thread method
 			std::thread Handler(http_handler,new_socket);
 		    Handler.detach();
-////    		fork method
+//// Fork Method
 //			if(forkm()){
 ////				if parent, keep on listening ignore client socket.
 //				close(new_socket);
@@ -136,36 +123,96 @@ int main(int argc, char const *argv[])
 void http_handler(int client_socket){
 	char buffer[BUF_LEN] = {0};
 	int read_count = 0;
-	try{
-		read_count = recv( client_socket , buffer, BUF_LEN,0);
-			if(read_count > 0){
+	//select() requirements.
+    fd_set rset;
+	//	{secs, usecs}
+    timeval tv = {KEEP_ALIVE_TIMEOUT,0};
+
+    //setup
+    FD_ZERO(&rset);
+
+	while(1){
+		try{
+			//watch client_socket
+		    FD_SET(client_socket,&rset);
+
+		    int readyN = select(client_socket+1,&rset,NULL,NULL,&tv);
+		    //if timeout or error
+		    if(readyN <=0)throw EC_CON_TIMEOUT;
+		    //if client_socket has event
+		    else if(FD_ISSET(client_socket,&rset)){
+				read_count = recv( client_socket , buffer, BUF_LEN,MSG_DONTWAIT);
+				//nothing to read
+				if(read_count == -1) continue;
+				//connection closed
+				else if(read_count == 0 )break;
+
+	//			http_sender(client_socket,{
+	//					{"Status","200 OK"},
+	//					{"Custom","Connection: keep-alive\r\n"
+	//										"Keep-Alive: timeout=5, max=1000\r\n"},
+	//					{"Content",""}
+	//			});
+
 				DEBUG_ONLY(cout << buffer <<endl;);
-				HttpHeaderParser parser(buffer,strlen(buffer));
-				if(parser.getFile().find("html")!=string::npos)html_handler(client_socket,parser);
-				else if(parser.getFile().find("cgi")!=string::npos)cgi_handler(client_socket,parser);
-				else throw "Test";
+				HttpHeaderParser parser(client_socket,buffer);
+				if(parser.getFile().find("cgi")!=string::npos)cgi_handler(client_socket,parser);
+				else file_handler(client_socket,parser);
+		    }
+		}
+		catch(const char * msg){
+			DEBUG_ONLY(cout << "Send 404." << endl;)
+			html_404_handler(client_socket,msg);
+		}
+		catch(int errorCode){
+			if(errorCode == EC_CON_TIMEOUT){
+				DEBUG_ONLY(cout << "Connection Overtime." << endl;)
+				break;
 			}
+			else if(errorCode == EC_CON_CLOSE){
+				DEBUG_ONLY(cout << "Connection Closed By Client." << endl;)
+				break;
+			}
+			else{
+				http_sender(client_socket,{
+						{"Status","500 Internal Server Error"},
+						{"Content","Unknown Error"}
+				});
+			}
+		}
+		catch(...){
+			DEBUG_ONLY(cout << "Send 500." << endl;)
+			http_sender(client_socket,
+					{
+							{"Status","500 Internal Server Error"},
+							{"Content","Server Error"}
+					});
+			break;
+		}
+		memset(buffer,'\0',BUF_LEN);
 	}
-	catch(...){
-		DEBUG_ONLY(cout << "Send 404." << endl;)
-		html_404_handler(client_socket);
-	}
+
 	close(client_socket);
 	DEBUG_ONLY(cout << "<!Socket Closed!>" <<endl<<endl;)
 }
 
 void http_sender(int dest_socket, std::map<string,string> header_options ){
 	string ret =
-			"HTTP/1.1 "+ (header_options.count("status")?header_options["status"]:"404 Not Found") +"\r\n"
-			"date: "+get_http_time()+"\r\n"
-			"expires: -1\r\n"
-			"cache-control: private, max-age=0\r\n"
-			"content-type: text/html; charset=UTF-8\r\n"
-			"server: NSHW1_EZHTTPD\r\n"
-			"content-length:"+ (header_options.count("content")==1?to_string(header_options["content"].size()):"0") +" \r\n"
-			"\r\n"+
-			header_options["content"]+"\r\n";
+			"HTTP/1.1 "+ (header_options.count("Status")?header_options["Status"]:"404 Not Found") +"\r\n"
+			CONNECTION_OPTION
+			"Date: "+get_http_time()+"\r\n"
+			"Expires: -1\r\n"
+			"Server: NSHW1_EZHTTPD\r\n"
+			"Cache-Control: private, max-age=0\r\n"
+			"Content-Type:" + (header_options.count("Content-Type")? header_options["Content-Type"]:" text/html; charset=UTF-8")+"\r\n"
+			"Content-Length:"+ (header_options.count("Content")?to_string(header_options["Content"].size()):"0") +" \r\n"
+			//Add Custom Header
+			+header_options["Custom"]+
+			//Add Content
+			"\r\n"
+			+ header_options["Content"]+"\r\n";
 
+	//Send Packet
 	for(int i = 0 , j = ret.size();i<j;i+=BUF_LEN){
 		send(dest_socket,(void *)&ret[i],((j-i) < BUF_LEN?j-i:BUF_LEN),0 );
 	}
@@ -173,10 +220,9 @@ void http_sender(int dest_socket, std::map<string,string> header_options ){
 	DEBUG_ONLY(cout << "Sent Package:\n" << ret <<endl;)
 }
 
-void html_handler(int client_socket,HttpHeaderParser& parser){
+void file_handler(int client_socket,HttpHeaderParser& parser){
 	int file_size = 0;
-	DEBUG_ONLY(cout << "GetPath:" << parser.getPath() <<endl;)
-	string fullPath = RootPath + parser.getPath();
+	string fullPath = ROOT_PATH + parser.getPath();
 	DEBUG_ONLY(cout << "FullPath:" << fullPath <<endl;)
 	std::fstream infile = std::fstream(fullPath,ios::in|ios::binary);
 
@@ -195,8 +241,8 @@ void html_handler(int client_socket,HttpHeaderParser& parser){
 	infile.close();
 
 	http_sender(client_socket,{
-		{"status","200 OK"},
-		{"content",buffer}
+		{"Status","200 OK"},
+		{"Content",buffer}
 	});
 
 	delete[] buffer;
@@ -204,13 +250,12 @@ void html_handler(int client_socket,HttpHeaderParser& parser){
 
 void cgi_handler(int client_socket,HttpHeaderParser& parser){
 	DEBUG_ONLY( cout << "CGI Handling." << endl;)
-	string fullPath = RootPath + parser.getPath();
+	string fullPath = ROOT_PATH + parser.getPath();
     if( access( fullPath.c_str(), F_OK ) == -1) throw "No Cgi File";
 
 	int ParentOutput[2] = {0};
 	int ChildOutput[2] = {0};
     int status;
-    char* inputData={"Hello world"};
     pid_t cpid;
      char c;
 
@@ -253,17 +298,15 @@ void cgi_handler(int client_socket,HttpHeaderParser& parser){
 
       /*parent process*/
       else{
-    	  	 char buffer[BUF_LEN] = {0};
-
             //close unused fd
             close(ParentOutput[0]);
             close(ChildOutput[1]);
 
             // send the message to the CGI program
-            string content = parser.getContent();
-            int totalSize = content.size();
+            string params = parser.getParams();
+            int totalSize = params.size();
             for(int i = 0; i < totalSize;){
-            	i += write(ParentOutput[1], &content[i], (i+BUF_LEN < totalSize?BUF_LEN:totalSize-i));
+            	i += write(ParentOutput[1], &params[i], (i+BUF_LEN < totalSize?BUF_LEN:totalSize-i));
             }
 
             // receive the message from the  CGI program
@@ -278,14 +321,15 @@ void cgi_handler(int client_socket,HttpHeaderParser& parser){
             close(ParentOutput[1]);
             waitpid(cpid, &status, 0);
             http_sender(client_socket,{
-            		{"status","200 OK"},
-            		{"content",result}
+            		{"Status","200 OK"},
+            		{"Content",result}
             });
       }
 }
 
-void html_404_handler(int client_socket){
+void html_404_handler(int client_socket,const char * msg){
 	http_sender(client_socket,{
-			{"status","404 Not Found"},
+			{"Status","404 Not Found"},
+			{"Content",msg}
 		});
 }

@@ -5,6 +5,8 @@
 #include <exception>
 #include <string.h>
 #include <iostream>
+#include <map>
+#include <sys/socket.h>
 using namespace std;
 enum eMethod{
 		Unknown = -1,
@@ -15,7 +17,7 @@ enum eMethod{
 
 class HttpHeaderParser{
 public:
-	HttpHeaderParser(char * headerBuffer, size_t size);
+	HttpHeaderParser(int client_socket,char * headerBuffer);
 
 	string getPath();
 
@@ -25,13 +27,23 @@ public:
 
 	string getContent();
 
+	string getQuery();
+
+	string getParams();
+
+	map<string,string>& getOptions();
+
 	eMethod getMethod();
+
 private:
+	void parseFirstLine(string firstLine);
+	void parseOptions(string optLines);
+
 	eMethod reqMethod = eMethod::Unknown;
-	vector<string> pathHierarchy;
-	vector<string> contentList;
-	bool isDir = false;
-	void parseLocation(char * location);
+	map<string,string> optPair;
+	string mUrl = "";
+	string mQuery = "";
+	string mContent = "";
 };
 
 #endif
