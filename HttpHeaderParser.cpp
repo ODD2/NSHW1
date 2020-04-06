@@ -20,9 +20,37 @@ HttpHeaderParser::HttpHeaderParser(char* headerBuffer,size_t size){
 
 	if(strcmp("GET",char_ptr_method)==0){
 		reqMethod = eMethod::Get;
+		char * querystr ;
+		char_ptr_location = strtok(char_ptr_location,"?");
+	    querystr = strtok(NULL,"?");
+		char * query = strtok(querystr,"&");
+		while(query!=NULL){
+	    	contentList.push_back(query);
+	    	query = strtok(NULL,"&");
+		}
 	}
 	else if(strcmp("POST",char_ptr_method)==0){
 		reqMethod = eMethod::Post;
+		int contentLength = 0;
+
+		char * headOpt = strtok(NULL,"\r\n");
+		while(headOpt!=NULL){
+			string headStr(headOpt);
+			if(headStr.substr(0,headStr.find(':')) == "Content-Length"){
+			  contentLength = strtoll(headStr.substr(15).c_str(),NULL,10);
+			  break;
+			}
+			headOpt = strtok(NULL,"\r\n");
+		}
+
+		if(contentLength > 0 && contentLength < size){
+			char * contentStart = &headerBuffer[size - contentLength];
+			char * query = strtok(contentStart,"&");
+			while(query!=NULL){
+			   	contentList.push_back(query);
+			   	query = strtok(NULL,"&");
+			}
+		}
 	}
 	else{
 		throw "Invalid Method";
@@ -57,6 +85,8 @@ eMethod HttpHeaderParser::getMethod(){
 }
 
 void HttpHeaderParser::parseLocation(char * location){
+		if(location[strlen(location)-1]=='/') isDir = true;
+
 		char * pch = strtok(location,"/");
 		while( pch!=NULL )
 		{
@@ -66,7 +96,7 @@ void HttpHeaderParser::parseLocation(char * location){
 			}
 			pch = strtok(NULL,"/");
 		}
-		if(pathHierarchy.size() == 0){
+		if(pathHierarchy.size() == 0 || isDir){
 			pathHierarchy.push_back("index.html");
 		}
 	}

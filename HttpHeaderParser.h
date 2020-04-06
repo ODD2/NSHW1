@@ -27,6 +27,8 @@ public:
 private:
 	eMethod reqMethod = eMethod::Unknown;
 	vector<string> pathHierarchy;
+	vector<string> contentList;
+	bool isDir = false;
 	void parseLocation(char * location);
 };
 

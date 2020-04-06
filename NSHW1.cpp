@@ -19,6 +19,7 @@
 #include <map>
 #include <chrono>
 #include <wait.h>
+#include <sys/stat.h>
 #include "HttpHeaderParser.h"
 #define PORT 5000
 #define BUF_LEN 1024
@@ -139,7 +140,7 @@ void http_handler(int client_socket){
 		read_count = recv( client_socket , buffer, BUF_LEN,0);
 			if(read_count > 0){
 				DEBUG_ONLY(cout << buffer <<endl;);
-				HttpHeaderParser parser(buffer,sizeof(buffer));
+				HttpHeaderParser parser(buffer,strlen(buffer));
 				if(parser.getFile().find("html")!=string::npos)html_handler(client_socket,parser);
 				else if(parser.getFile().find("cgi")!=string::npos)cgi_handler(client_socket,parser);
 				else throw "Test";
@@ -203,6 +204,9 @@ void html_handler(int client_socket,HttpHeaderParser& parser){
 
 void cgi_handler(int client_socket,HttpHeaderParser& parser){
 	DEBUG_ONLY( cout << "CGI Handling." << endl;)
+	string fullPath = RootPath + parser.getPath();
+    if( access( fullPath.c_str(), F_OK ) == -1) throw "No Cgi File";
+
 	int ParentOutput[2] = {0};
 	int ChildOutput[2] = {0};
     int status;
@@ -242,8 +246,8 @@ void cgi_handler(int client_socket,HttpHeaderParser& parser){
                the stdout of CGI program is redirect to cgiOutput
                the stdin  of CGI program is redirect to cgiInput
             */
-            string fullPath = RootPath + parser.getPath();
-            status = execlp(fullPath.c_str(),fullPath.c_str(),NULL);
+
+            execlp(fullPath.c_str(),fullPath.c_str(),NULL);
             exit(0);
       }
 
@@ -270,16 +274,11 @@ void cgi_handler(int client_socket,HttpHeaderParser& parser){
             close(ChildOutput[0]);
             close(ParentOutput[1]);
             waitpid(cpid, &status, 0);
-            if(status == -1) throw "Execute Cgi Failed.";
             http_sender(client_socket,{
             		{"status","200 OK"},
             		{"content",result}
             });
       }
-}
-
-void cgi_execute(const char * target){
-
 }
 
 void html_404_handler(int client_socket){
