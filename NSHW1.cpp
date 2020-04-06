@@ -18,6 +18,7 @@
 #include <fstream>
 #include <map>
 #include <chrono>
+#include <wait.h>
 #include "HttpHeaderParser.h"
 #define PORT 5000
 #define BUF_LEN 1024
@@ -111,7 +112,7 @@ int main(int argc, char const *argv[])
     		perror("accept");
     	}
     	else{
-    		DEBUG_ONLY(cout << "New Socket..." <<endl<<endl;)
+    		DEBUG_ONLY(cout << "<!New Socket!>" <<endl<<endl;)
 		//			thread method
 			std::thread Handler(http_handler,new_socket);
 		    Handler.detach();
@@ -149,7 +150,7 @@ void http_handler(int client_socket){
 		html_404_handler(client_socket);
 	}
 	close(client_socket);
-	DEBUG_ONLY(cout << "Socket Closed" <<endl;)
+	DEBUG_ONLY(cout << "<!Socket Closed!>" <<endl<<endl;)
 }
 
 void http_sender(int dest_socket, std::map<string,string> header_options ){
@@ -201,6 +202,83 @@ void html_handler(int client_socket,HttpHeaderParser& parser){
 }
 
 void cgi_handler(int client_socket,HttpHeaderParser& parser){
+	DEBUG_ONLY( cout << "CGI Handling." << endl;)
+	int ParentOutput[2] = {0};
+	int ChildOutput[2] = {0};
+    int status;
+    char* inputData={"Hello world"};
+    pid_t cpid;
+     char c;
+
+      /* Use pipe to create a data channel betweeen two process
+         'ParentOutput'  handle  data from 'host' to 'CGI'
+         'ChildOutput' handle data from 'CGI' to 'host'*/
+      if( pipe(ParentOutput)<0  || pipe(ChildOutput)<0){
+            throw "Cannot Execute Cgi. Cannot CreatePipe.";
+      }
+
+      /* Creates a new process to execute cgi program */
+      if((cpid = fork()) < 0){
+            throw "Cannot Execute Cgi. Fork Failed.";
+      }
+
+      /*child process*/
+      if(cpid == 0){
+            //close unused fd
+            close(ParentOutput[1]);
+            close(ChildOutput[0]);
+
+            //redirect the output from stdout to cgiOutput
+            dup2(ChildOutput[1],STDOUT_FILENO);
+
+            //redirect the input from stdin to cgiInput
+            dup2(ParentOutput[0], STDIN_FILENO);
+
+            //after redirect we don't need the old fd
+            close(ParentOutput[0]);
+            close(ChildOutput[1]);
+
+            /* execute cgi program
+               the stdout of CGI program is redirect to cgiOutput
+               the stdin  of CGI program is redirect to cgiInput
+            */
+            string fullPath = RootPath + parser.getPath();
+            status = execlp(fullPath.c_str(),fullPath.c_str(),NULL);
+            exit(0);
+      }
+
+      /*parent process*/
+      else{
+    	  	 char buffer[BUF_LEN] = {0};
+
+            //close unused fd
+            close(ParentOutput[0]);
+            close(ChildOutput[1]);
+
+            // send the message to the CGI program
+            write(ParentOutput[1], inputData, strlen(inputData));
+
+
+            // receive the message from the  CGI program
+            string result = "";
+            while (read(ChildOutput[0], &c, 1) > 0){
+            	 //buffer the message
+                  result.append(1,c);
+            }
+
+            // connection finish
+            close(ChildOutput[0]);
+            close(ParentOutput[1]);
+            waitpid(cpid, &status, 0);
+            if(status == -1) throw "Execute Cgi Failed.";
+            http_sender(client_socket,{
+            		{"status","200 OK"},
+            		{"content",result}
+            });
+      }
+}
+
+void cgi_execute(const char * target){
 
 }
 

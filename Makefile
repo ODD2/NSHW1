@@ -6,13 +6,16 @@ LIBS = -lpthread
 
 TARGET =	NSHW1
 
+TEST_CGI : test_cgi.cpp
+	$(CXX) -o test_cgi.cgi test_cgi.cpp
+
 HttpHeaderParser.o : HttpHeaderParser.h HttpHeaderParser.cpp
 	$(CXX) $(CXXFLAGS) -c HttpHeaderParser.cpp
 	
 $(TARGET):	$(OBJS)
 	$(CXX) -o $(TARGET) $(OBJS) $(LIBS)
 
-all:	$(TARGET)
+all:	$(TARGET) TEST_CGI
 
 clean:
 	rm -f $(OBJS) $(TARGET)
