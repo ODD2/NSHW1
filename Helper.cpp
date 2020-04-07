@@ -14,7 +14,7 @@ map<string,string> ParseQuery( char * buffer){
 	map<string,string> ret;
 	char * line = strtok(buffer,"&");
 	string id,value;
-	int split;
+	size_t split;
 
 	while(line!=NULL){
 		id = line;
