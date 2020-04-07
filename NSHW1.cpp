@@ -147,13 +147,6 @@ void http_handler(int client_socket){
 				//connection closed
 				else if(read_count == 0 )break;
 
-	//			http_sender(client_socket,{
-	//					{"Status","200 OK"},
-	//					{"Custom","Connection: keep-alive\r\n"
-	//										"Keep-Alive: timeout=5, max=1000\r\n"},
-	//					{"Content",""}
-	//			});
-
 				DEBUG_ONLY(cout << buffer <<endl;);
 				HttpHeaderParser parser(client_socket,buffer);
 				if(parser.getFile().find("cgi")!=string::npos)cgi_handler(client_socket,parser);

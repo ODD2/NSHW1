@@ -9,7 +9,7 @@
 #define GLOBAL_H_
 #define PORT 5000
 #define BUF_LEN 1024
-#define ROOT_PATH "./"
+#define ROOT_PATH "./public/"
 #define CONNECTION_OPTION "Connection: keep-alive\r\n"\
 															"Keep-Alive: timeout=5, max=1000\r\n"
 #define KEEP_ALIVE_TIMEOUT 5
